@@ -139,7 +139,10 @@ def test_load_manifest(tmp_path: Path) -> None:
     assert len(m.entries) == 1
     assert m.entries[0].include == ("*.gguf",)
     assert m.entries[0].note == "hi"
-    assert m.dest_dir(m.entries[0]).endswith("cat" + "\\" + "o__r")
+    # 落盘路径用 pathlib 拼，分隔符是平台原生的 —— 断言不能写死反斜杠
+    assert m.dest_dir(m.entries[0]).endswith(str(Path("cat") / "o__r"))
+    assert Path(m.dest_dir(m.entries[0])).name == "o__r"
+    assert Path(m.dest_dir(m.entries[0])).parent.name == "cat"
 
 
 def test_load_manifest_rejects_bad_repo(tmp_path: Path) -> None:
