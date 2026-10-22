@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hf-dlkit"
+version = "0.1.0"
+description = "面向大文件的 Hugging Face 下载器：切片并行、镜像端点回落、逐文件 sha256 校验"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "pwl1987" }]
+keywords = ["huggingface", "download", "mirror", "sha256", "chunked", "llm"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: System :: Archiving :: Mirroring",
+]
+# 核心零第三方依赖：元数据层用 stdlib urllib，传输层 subprocess 调 curl。
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+hfdl = "hfdl.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/pwl1987/hf-dlkit"
+Source = "https://github.com/pwl1987/hf-dlkit"
+Issues = "https://github.com/pwl1987/hf-dlkit/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+hfdl = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

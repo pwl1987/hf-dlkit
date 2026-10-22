@@ -1,0 +1,31 @@
+{
+  "root": "D:/models",
+  "groups": [
+    {
+      "path": ["通用模型", "GGUF"],
+      "repo": "owner/Qwen3.8-27B-GGUF",
+      "fmt": "GGUF",
+      "note": "llama.cpp / LM Studio / Ollama；Apple Silicon 同样能跑",
+      "include": [
+        "*-Q6_K.gguf",
+        "*-Q5_K_M.gguf",
+        "mmproj-*.gguf",
+        "*.gguf.sha256",
+        "README.md"
+      ],
+      "exclude": [
+        "*-Q2_K.gguf",
+        "*-Q3_K_*.gguf",
+        "*-Q4_K_*.gguf",
+        "*-Q8_0.gguf",
+        "*-BF16.gguf"
+      ]
+    },
+    {
+      "path": ["通用模型", "MLX", "8bit"],
+      "repo": "mlx-community/Qwen3.8-27B-8bit",
+      "fmt": "MLX",
+      "note": "8bit 量化，Apple Silicon 专用"
+    }
+  ]
+}

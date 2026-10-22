@@ -1,0 +1,48 @@
+# 示例配置。复制成 hfdl.toml 后按需修改。
+# 优先级：CLI 旗标 > 环境变量（HFDL_*） > 本文件 > 默认值。
+
+[hfdl]
+# --- 端点 ---
+# 主端点。默认镜像；官方直连也可以（但国内通常不通）。
+endpoint = "https://hf-mirror.com"
+# 回落端点。镜像 503 / 超时时会自动切过去。
+# 回落不要求有令牌 —— 镜像整站挂掉时，只有官网能解析出 CDN 签名 URL。
+fallback_endpoint = "https://huggingface.co"
+
+# --- 并发模型 ---
+# 同时在跑的网络连接数。CDN 对每条连接限速，真正的杠杆是连接数。
+workers = 24
+# 任务线程数。校验要跑在下载槽之外，所以要 >= workers。
+tasks = 32
+
+# --- 切片并行 ---
+# 超过这个字节数的文件走切片并行。
+chunk_threshold = 1000000000
+# 每片字节数。中断只重下一片，不必整个文件重来。
+chunk_size = 400000000
+
+# --- 传输细节 ---
+retries = 4
+connect_timeout = 20
+max_time = 3600
+# 低于该速率（字节/秒）持续 speed_time 秒就中断重连。
+speed_limit = 20000
+speed_time = 45
+# 用外部 curl（实测明显更快）。关掉则用纯标准库实现。
+use_curl = true
+
+# --- 代理绕过 ---
+# 这些域**绕开**代理直连。CDN 走代理实测 1.6~2 MB/s，
+# 绕开代理 40~115 MB/s，差 25~70 倍。
+# ⚠ 这些条目是**合并**进 NO_PROXY 的，不会覆盖你原有的 localhost / 内网条目。
+no_proxy = "hf.co,cdn-lfs.huggingface.co"
+
+# --- 筛选语义 ---
+# pathseg：`*` 不跨 `/`，`**` 才跨（推荐）。
+# fnmatch：传统语义，`*` 跨 `/`（兼容旧清单）。
+glob_style = "pathseg"
+
+# 注意：令牌**不在这里配**。它只从环境变量读：
+#   export HF_TOKEN=hf_xxx
+# 或 HUGGING_FACE_HUB_TOKEN。
+# 写进配置文件 = 密钥入库。

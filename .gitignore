@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.eggs/
+.venv/
+venv/
+
+# 测试与缓存
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# 本工具链的运行时产物
+*.part
+*.part.chunks/
+*.chunks/
+*.ok
+.complete
+.gated
+_logs/
+
+# 编辑器
+.idea/
+.vscode/
+.DS_Store
