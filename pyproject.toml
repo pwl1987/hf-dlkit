@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hf-dlkit"
-version = "0.1.0"
+version = "0.1.1"
 description = "面向大文件的 Hugging Face 下载器：切片并行、镜像端点回落、逐文件 sha256 校验"
 readme = "README.md"
 # 3.9+：Ubuntu 22.04 自带 python3.10、Debian 12 自带 3.11，

@@ -2,6 +2,44 @@
 
 所有重要变更记在这里。格式参考 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.1.1] — 2026-10-22
+
+Linux / macOS 可用性专项。在 Ubuntu 22.04 (WSL2) 与 GitHub Actions
+macos-latest 上**真实下载**验证后修的四处阻断。
+
+### 修复
+
+- **老 setuptools 装出空包（Debian 11 / Ubuntu 20.04）** ——
+  `/usr/lib/python3/dist-packages` 会**泄漏进 pip 的构建隔离环境并遮蔽**隔离出来的
+  新版 setuptools，实际跑的是系统自带的 59.6，它不认 PEP 621 的 `[project]` 表，
+  于是 `pip install .` 产出 `UNKNOWN-0.0.0`，装完 `import hfdl` 直接报错。
+  新增 `setup.py` 垫片：setuptools ≥ 61 走 `pyproject.toml`，< 61 走兼容路径。
+- **老 curl 遇到不认识的选项直接退出** ——
+  `--retry-all-errors` 需要 curl ≥ 7.71（2020-03）；
+  macOS Big Sur 11 / Monterey 12 自带 curl 7.64.1，Debian 10、Ubuntu 20.04 同理。
+  改为启动时探测 curl 版本，老版本自动不加该选项。
+- **Python 3.11+ 门槛挡住 Ubuntu 22.04 的默认 python3.10** ——
+  降到 `>= 3.9`。TOML 配置在 3.9/3.10 上改用 `tomli`，或改用同结构的 `.json`；
+  报错信息给出三条可执行方案。
+- **公开仓 + 没有令牌时小文件被拒** ——
+  小文件不跳 CDN，最终 URL 停在官方 resolve 端点，原逻辑判定"需要鉴权"就报错；
+  但公开仓本来就不需要鉴权（gated 仓在更早的 HEAD 阶段就 401 了）。
+  改为没有令牌时只是**不加**这个头，而不是报错。
+
+### 新增
+
+- `integration/smoke.py`：真下载冒烟脚本，覆盖 API → resolve → 取数 →
+  组装 → sha256 → 标记 → verify 复核 → 幂等重跑。
+- CI `integration` job：Windows / Linux / macOS 各跑一遍，
+  且 **curl 路径与纯 Python 兜底路径各跑一遍**。
+- CI `legacy-setuptools` job：固定 setuptools 59.6 复现 Debian/Ubuntu 构建场景。
+- CI 矩阵加 Python 3.9 / 3.10。
+
+### 文档
+
+- README 加「排障」章节：`UNKNOWN-0.0.0`、curl 退出码 2、TOML 版本门槛、
+  下载慢怎么判断、UNVERIFIED 的含义。
+
 ## [0.1.0] — 2026-10-22
 
 从一套内部脚本重构而来的第一个公开版本。
