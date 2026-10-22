@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -102,3 +103,38 @@ def test_bad_toml_reports_path(tmp_path: Path) -> None:
     p.write_text("this is not toml {{{", encoding="utf-8")
     with pytest.raises(ConfigError):
         load_config(p)
+
+
+def test_json_config_is_supported_everywhere(tmp_path: Path) -> None:
+    """JSON 配置在所有 Python 版本上都能用（3.9/3.10 没有 tomllib）。"""
+    p = tmp_path / "c.json"
+    p.write_text(json.dumps({"hfdl": {"workers": 8, "chunk_size": 123}}), encoding="utf-8")
+    cfg = load_config(p)
+    assert cfg.workers == 8
+    assert cfg.chunk_size == 123
+
+
+def test_json_config_without_section(tmp_path: Path) -> None:
+    p = tmp_path / "c.json"
+    p.write_text(json.dumps({"workers": 3}), encoding="utf-8")
+    assert load_config(p).workers == 3
+
+
+def test_bad_json_reports_path(tmp_path: Path) -> None:
+    p = tmp_path / "c.json"
+    p.write_text("{not json", encoding="utf-8")
+    with pytest.raises(ConfigError):
+        load_config(p)
+
+
+def test_toml_without_tomllib_gives_actionable_error(tmp_path: Path, monkeypatch) -> None:
+    """Python 3.9/3.10 上没有 tomllib 时，错误信息要告诉用户怎么办。"""
+    import hfdl.config as cfgmod
+
+    monkeypatch.setattr(cfgmod, "_toml", None)
+    p = tmp_path / "c.toml"
+    p.write_text("[hfdl]\nworkers = 8\n", encoding="utf-8")
+    with pytest.raises(ConfigError) as exc:
+        load_config(p)
+    msg = str(exc.value)
+    assert "3.11" in msg and "json" in msg.lower()

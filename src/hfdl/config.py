@@ -10,11 +10,22 @@
 
 from __future__ import annotations
 
+import json
 import os
-import tomllib
+import sys
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
+
+#: TOML 解析。``tomllib`` 是 3.11+ 的标准库；3.9/3.10 上如果装了 ``tomli`` 也能用。
+#: 都没有的话，**JSON 配置文件仍然完全可用**（不降级功能，只是换个格式）。
+try:  # pragma: no cover - 取决于解释器版本
+    import tomllib as _toml
+except ModuleNotFoundError:  # pragma: no cover
+    try:
+        import tomli as _toml  # type: ignore[no-redef]
+    except ModuleNotFoundError:
+        _toml = None  # type: ignore[assignment]
 
 __all__ = ["Config", "ConfigError", "load_config", "DEFAULT_ENDPOINT", "DEFAULT_FALLBACK"]
 
@@ -125,22 +136,6 @@ _TRUE = {"1", "true", "yes", "on"}
 _FALSE = {"0", "false", "no", "off"}
 
 
-def _coerce(name: str, value: Any) -> Any:
-    """把 TOML / 环境变量里的值转成字段声明的类型。"""
-    if not isinstance(value, str):
-        return value
-    if isinstance(value, bool):
-        return value
-    low = value.strip().lower()
-    if low in _TRUE:
-        return True
-    if low in _FALSE:
-        return False
-    if isinstance(value, str):
-        return value
-    return value
-
-
 def _parse_scalar(raw: str, kind: str) -> Any:
     if kind == "bool":
         return raw.strip().lower() in _TRUE
@@ -152,6 +147,36 @@ def _parse_scalar(raw: str, kind: str) -> Any:
     if kind == "tuple[str, ...]":
         return tuple(x.strip() for x in raw.split(",") if x.strip())
     return raw
+
+
+def _load_config_file(path: Path) -> dict[str, Any]:
+    """读配置文件。``.json`` 到处都能用；``.toml`` 需要 3.11+（或装了 tomli）。"""
+    suffix = path.suffix.lower()
+    if suffix == ".json":
+        try:
+            with path.open(encoding="utf-8") as fh:
+                data = json.load(fh)
+        except json.JSONDecodeError as exc:
+            raise ConfigError(f"{path}: JSON 解析失败: {exc}") from exc
+    else:
+        if _toml is None:
+            raise ConfigError(
+                f"{path}: TOML 配置需要 Python 3.11+（当前 {sys.version_info.major}."
+                f"{sys.version_info.minor}）。\n"
+                f"  三个办法任选：① 升级到 3.11+；② pip install tomli；"
+                f"③ 把配置文件改成 .json（同结构）。"
+            )
+        try:
+            with path.open("rb") as fh:
+                data = _toml.load(fh)
+        except Exception as exc:  # noqa: BLE001
+            raise ConfigError(f"{path}: TOML 解析失败: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ConfigError(f"{path}: 顶层必须是对象")
+    section = data.get("hfdl", data)
+    if not isinstance(section, dict):
+        raise ConfigError(f"{path}: [hfdl] 段必须是表")
+    return section
 
 
 def _apply_mapping(cfg: Config, data: dict[str, Any], source: str) -> None:
@@ -169,9 +194,6 @@ def _apply_mapping(cfg: Config, data: dict[str, Any], source: str) -> None:
                 raw = tuple(str(x) for x in raw)
             else:
                 raise ConfigError(f"{source}: {key} 需要字符串或列表")
-            if f.type and "tuple[str, ...]" in str(f.type):
-                setattr(cfg, key, raw)
-                continue
             setattr(cfg, key, raw)
             continue
         if isinstance(current, bool):
@@ -201,19 +223,11 @@ def load_config(
     """
     cfg = Config()
 
-    # 1) TOML 文件
+    # 1) 配置文件
     if path:
         p = Path(path)
         if p.is_file():
-            try:
-                with p.open("rb") as fh:
-                    data = tomllib.load(fh)
-            except tomllib.TOMLDecodeError as exc:
-                raise ConfigError(f"{p}: TOML 解析失败: {exc}") from exc
-            section = data.get("hfdl", data)
-            if not isinstance(section, dict):
-                raise ConfigError(f"{p}: [hfdl] 段必须是表")
-            _apply_mapping(cfg, section, str(p))
+            _apply_mapping(cfg, _load_config_file(p), str(p))
         elif p.exists():
             raise ConfigError(f"{p}: 不是文件")
 

@@ -12,7 +12,16 @@ import pytest
 
 from hfdl.config import Config
 from hfdl.hub import FileMeta
-from hfdl.transfer import Outcome, RangeUnsupported, TransferEngine, TransferError
+from hfdl.transfer import (
+    CurlFetcher,
+    Outcome,
+    PythonFetcher,
+    RangeUnsupported,
+    TransferEngine,
+    TransferError,
+    parse_curl_version,
+    supports_retry_all_errors,
+)
 
 
 class FakeHub:
@@ -173,3 +182,88 @@ def test_nested_path_is_created(tmp_path: Path) -> None:
 
 def test_range_unsupported_is_raised_by_fetcher_contract() -> None:
     assert issubclass(RangeUnsupported, TransferError)
+
+
+# --------------------------------------------------------------------------- #
+# curl 版本兼容
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("curl 7.64.1 (x86_64-pc-linux-gnu) libcurl/7.64.1 OpenSSL/1.1.1", (7, 64, 1)),
+        ("curl 7.81.0 (x86_64-pc-linux-gnu) libcurl/7.81.0", (7, 81, 0)),
+        ("curl 8.13.0 (Windows) libcurl/8.13.0 Schannel", (8, 13, 0)),
+        ("curl 8.7.1 (arm64-apple-darwin) libcurl/8.7.1", (8, 7, 1)),
+        ("not curl at all", None),
+    ],
+)
+def test_parse_curl_version(text: str, expected) -> None:
+    assert parse_curl_version(text) == expected
+
+
+@pytest.mark.parametrize(
+    "version,expected",
+    [
+        ((7, 64, 1), False),   # macOS 11/12、Debian 10、Ubuntu 20.04
+        ((7, 70, 0), False),
+        ((7, 71, 0), True),    # --retry-all-errors 引入版本
+        ((7, 81, 0), True),
+        ((8, 13, 0), True),
+        (None, False),
+    ],
+)
+def test_supports_retry_all_errors(version, expected: bool) -> None:
+    assert supports_retry_all_errors(version) is expected
+
+
+def test_old_curl_does_not_get_retry_all_errors_flag() -> None:
+    """老 curl 见到不认识的选项会直接报错退出 —— 一个文件都下不下来。"""
+    fetcher = CurlFetcher(token="t")
+    fetcher.version = (7, 64, 1)
+    fetcher.retry_all_errors = False
+    cmd = fetcher._cmd("https://x/y", "out.bin", False, None, None)
+    assert "--retry-all-errors" not in cmd
+    assert "--retry" in cmd
+
+
+def test_new_curl_gets_retry_all_errors_flag() -> None:
+    fetcher = CurlFetcher(token="t")
+    fetcher.version = (8, 13, 0)
+    fetcher.retry_all_errors = True
+    cmd = fetcher._cmd("https://x/y", "out.bin", False, None, None)
+    assert "--retry-all-errors" in cmd
+
+
+def test_curl_cmd_has_range_and_auth_only_when_needed() -> None:
+    fetcher = CurlFetcher(token="tok")
+    cmd = fetcher._cmd("https://x/y", "out.bin", True, 100, 199)
+    assert "-r" in cmd and "100-199" in cmd
+    assert any("Authorization: Bearer tok" in c for c in cmd)
+    cmd2 = fetcher._cmd("https://x/y", "out.bin", False, None, None)
+    assert not any("Authorization" in c for c in cmd2)
+    assert "-r" not in cmd2
+
+
+def test_public_repo_without_token_still_downloads() -> None:
+    """回归：公开仓 + 没有令牌时，小文件（不跳 CDN）曾被直接拒绝。
+
+    公开仓本来就不需要鉴权 —— gated 仓在更早的 HEAD 阶段就 401 了。
+    所以没有令牌时只是**不加**这个头，而不是报错。
+    """
+    fetcher = CurlFetcher(token="")
+    cmd = fetcher._cmd("https://huggingface.co/o/r/resolve/main/README.md",
+                       "out.bin", True, None, None)
+    assert not any("Authorization" in c for c in cmd)
+    # 有令牌时照常带上
+    fetcher2 = CurlFetcher(token="tok")
+    cmd2 = fetcher2._cmd("https://huggingface.co/o/r/resolve/main/README.md",
+                         "out.bin", True, None, None)
+    assert any("Authorization: Bearer tok" in c for c in cmd2)
+
+
+def test_python_fetcher_without_token_does_not_raise() -> None:
+    fetcher = PythonFetcher(token="")
+    # 只构造命令路径，不真发请求；不应抛异常
+    assert fetcher.token == ""

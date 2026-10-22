@@ -181,6 +181,13 @@ export HF_TOKEN=hf_xxx      # 或 HUGGING_FACE_HUB_TOKEN
 实测 CDN 走代理 1.6~2 MB/s，绕开代理 40~115 MB/s，差 25~70 倍。
 而元数据层（`huggingface.co` / `hf-mirror.com`）**必须走代理**（国内直连不通）。
 
+> ⚠ 如果你的网络**要求所有流量都走代理**（CDN 直连根本不通），
+> 把 CDN 的绕过关掉：
+> ```bash
+> export HFDL_NO_PROXY=localhost,127.0.0.1     # 留空则全部走代理
+> ```
+> `no_proxy` 是**合并**进 `NO_PROXY` 的，不会覆盖你原有的 localhost / 内网条目。
+
 ### 断点续传
 
 * 单文件中断 → 重跑只重下**一片**（默认 400 MB），不必整个文件重来；
@@ -215,6 +222,75 @@ src/hfdl/
 * 令牌只从环境变量读，不落配置文件、不进日志。
 * 镜像端点拿到的 `ETag` **不是** sha256，不能拿来判完整性。
 * 仓库里不放任何私有地址、代理配置或个人资产清单。
+
+---
+
+## 排障
+
+### `pip install .` 装出了 `UNKNOWN-0.0.0`
+
+**这是 Debian 11 / Ubuntu 20.04 的已知坑**：`/usr/lib/python3/dist-packages`
+会**泄漏进 pip 的构建隔离环境并遮蔽**隔离出来的新版 setuptools，
+于是实际跑的是系统自带的 setuptools 59.6 —— 它不认 PEP 621 的 `[project]` 表，
+元数据全部读不到，产出一个空壳包。
+
+现象是 `pip install .` 显示 "Successfully installed UNKNOWN-0.0.0"，
+然后 `import hfdl` 直接 `ModuleNotFoundError`。
+
+**本库已经处理**：`setup.py` 里做了版本判断，setuptools < 61 时走兼容路径，
+装出来的就是正常的 `hf-dlkit`。CI 里有一个 `legacy-setuptools` job 专门守这条。
+
+如果你仍然遇到，多半是用了 `--no-build-isolation` 且环境里的 setuptools 太老：
+
+```bash
+python -m pip install --upgrade setuptools    # 或
+python -m pip install "setuptools>=68"
+```
+
+### 下载一个文件都下不下来，报 curl 退出码 2
+
+老版本 curl 见到不认识的选项会**直接报错退出**。
+`--retry-all-errors` 是 curl 7.71（2020-03）才有的，
+macOS Big Sur 11 / Monterey 12 自带 curl 7.64.1、Debian 10、Ubuntu 20.04 同理。
+
+**本库已经处理**：启动时探测 curl 版本，老版本自动不加这个选项。
+
+想确认当前用的是哪个：
+
+```bash
+curl --version
+python -c "from hfdl.transfer import CurlFetcher; print(CurlFetcher().version)"
+```
+
+### TOML 配置文件报 "需要 Python 3.11+"
+
+`tomllib` 是 3.11+ 的标准库。三个办法任选：
+
+```bash
+pip install tomli          # 让 3.9/3.10 也能读 TOML
+```
+或把配置改成 **`.json`**（同结构，功能完全一样）：
+
+```json
+{ "hfdl": { "workers": 24, "chunk_size": 400000000 } }
+```
+
+### 下载很慢 / 卡住
+
+按这个顺序判断：
+
+1. **境内源也慢吗？** 境内源（阿里云镜像等）同样慢 → 是本地链路/出口问题，
+   跟 HF 无关。
+2. **加并发涨总速吗？** 加了并发总速不变 → CDN 在**每条连接**上限速，
+   这正是本库做切片并行的原因；确认 `chunk_threshold` 没设得太大。
+3. **CDN 直连不通吗？** 网络要求所有流量走代理时，关掉 CDN 绕行：
+   `export HFDL_NO_PROXY=localhost,127.0.0.1`。
+
+### 校验说"无法校验"（UNVERIFIED）
+
+该仓的权威元数据拿不到（HF 挂了 / 端点全不可用）。
+本库**不会**把它当成"校验通过" —— 未校验就是未校验。
+等网络恢复后重跑 `hfdl verify` 即可。
 
 ---
 

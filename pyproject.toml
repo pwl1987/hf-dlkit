@@ -7,7 +7,10 @@ name = "hf-dlkit"
 version = "0.1.0"
 description = "面向大文件的 Hugging Face 下载器：切片并行、镜像端点回落、逐文件 sha256 校验"
 readme = "README.md"
-requires-python = ">=3.11"
+# 3.9+：Ubuntu 22.04 自带 python3.10、Debian 12 自带 3.11，
+# 都能直接装。TOML 配置需要 3.11+ 的 tomllib（3.9/3.10 可装 tomli，
+# 或改用同结构的 .json 配置文件 —— 两者功能完全一样）。
+requires-python = ">=3.9"
 license = { text = "MIT" }
 authors = [{ name = "pwl1987" }]
 keywords = ["huggingface", "download", "mirror", "sha256", "chunked", "llm"]

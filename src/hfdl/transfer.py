@@ -29,6 +29,7 @@ xet-bridge CDN 实测对 ``Range`` 返回 **206**，且返回字节数与请求�
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import threading
@@ -74,6 +75,28 @@ class FileOutcome:
 # --------------------------------------------------------------------------- #
 
 
+#: ``--retry-all-errors`` 是 curl 7.71.0（2020-03）才加的。
+#: macOS Big Sur 11 / Monterey 12 自带 curl 7.64.1，Debian 10、Ubuntu 20.04 同理 ——
+#: 老版本 curl 见到不认识的选项会**直接报错退出**（exit 2），一个文件都下不下来。
+#: 所以要先探测版本，不能无条件加这个选项。
+_RETRY_ALL_ERRORS_MIN = (7, 71, 0)
+
+
+def parse_curl_version(text: str) -> tuple[int, int, int] | None:
+    """从 ``curl --version`` 的输出里解析版本号。"""
+    m = re.search(r"curl (\d+)\.(\d+)\.(\d+)", text)
+    if not m:
+        return None
+    return int(m.group(1)), int(m.group(2)), int(m.group(3))
+
+
+def supports_retry_all_errors(version: tuple[int, int, int] | None) -> bool:
+    """该 curl 版本是否支持 ``--retry-all-errors``。"""
+    if version is None:
+        return False
+    return version >= _RETRY_ALL_ERRORS_MIN
+
+
 class CurlFetcher:
     """用外部 curl 取数（实测比纯 Python 快，且对代理/证书链处理成熟）。"""
 
@@ -84,6 +107,16 @@ class CurlFetcher:
         self.max_time = max_time
         self.speed_limit = speed_limit
         self.speed_time = speed_time
+        self.version = self._probe_version()
+        self.retry_all_errors = supports_retry_all_errors(self.version)
+
+    @staticmethod
+    def _probe_version() -> tuple[int, int, int] | None:
+        try:
+            proc = subprocess.run(["curl", "--version"], capture_output=True, timeout=15)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return parse_curl_version(proc.stdout.decode("utf-8", "replace"))
 
     def available(self) -> bool:
         return shutil.which("curl") is not None
@@ -92,16 +125,21 @@ class CurlFetcher:
              start: int | None, end: int | None) -> list[str]:
         cmd = [
             "curl", "-sS", "-L", "--fail",
-            "--retry", "6", "--retry-delay", "2", "--retry-all-errors",
+            "--retry", "6", "--retry-delay", "2",
             "--connect-timeout", str(self.connect_timeout),
             "--max-time", str(self.max_time),
             "--speed-limit", str(self.speed_limit),
             "--speed-time", str(self.speed_time),
         ]
+        if self.retry_all_errors:
+            # 只有 curl >= 7.71 才认这个选项；老版本加了会直接报错退出
+            cmd.append("--retry-all-errors")
         if need_auth:
-            if not self.token:
-                raise TransferError("需要 Authorization 头但没有令牌")
-            cmd += ["-H", f"Authorization: Bearer {self.token}"]
+            if self.token:
+                cmd += ["-H", f"Authorization: Bearer {self.token}"]
+            # 没有令牌时不加这个头 —— 公开仓的小文件本来就不需要鉴权。
+            # gated 仓在更早的 HEAD 阶段就 401 了，走不到这里。
+            # 绝不能在这里直接报错：否则「公开仓 + 未配令牌」会全军覆没。
         if start is not None:
             cmd += ["-r", f"{start}-{end}"]
         cmd += ["-o", out, url]
@@ -137,10 +175,10 @@ class PythonFetcher:
     def fetch(self, url: str, out: str, need_auth: bool = False,
               start: int | None = None, end: int | None = None) -> int:
         headers = {"User-Agent": "hf-dlkit/0.1.0"}
-        if need_auth:
-            if not self.token:
-                raise TransferError("需要 Authorization 头但没有令牌")
+        if need_auth and self.token:
             headers["Authorization"] = f"Bearer {self.token}"
+        # 没有令牌时不加这个头 —— 公开仓的小文件本来就不需要鉴权；
+        # gated 仓在 HEAD 阶段就 401 了，走不到这里。
         if start is not None:
             headers["Range"] = f"bytes={start}-{end}"
         req = urllib.request.Request(url, headers=headers)
